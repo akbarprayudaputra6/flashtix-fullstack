@@ -48,15 +48,18 @@ model Event {
 }
 
 model Order {
-  id         String      @id @default(uuid())
-  userId     String
-  eventId    String
-  quantity   Int
-  totalPrice Int
-  status     OrderStatus @default(PAID)
-  user       User        @relation(fields: [userId], references: [id])
-  event      Event       @relation(fields: [eventId], references: [id])
-  createdAt  DateTime    @default(now())
+  id          String      @id @default(uuid())
+  userId      String
+  eventId     String
+  quantity    Int
+  totalPrice  Int
+  status      OrderStatus @default(PENDING)
+  snapToken   String?
+  paymentType String?
+  user        User        @relation(fields: [userId], references: [id])
+  event       Event       @relation(fields: [eventId], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
 
   @@index([userId])
   @@index([eventId])

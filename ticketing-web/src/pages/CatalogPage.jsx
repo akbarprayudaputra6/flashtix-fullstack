@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, MapPin, Users, Zap } from "lucide-react";
+import { Calendar, MapPin, Users, Zap, AlertCircle, X } from "lucide-react";
 import * as eventService from "../services/event.service";
 import * as orderService from "../services/order.service";
 import { useAuth } from "../context/AuthContext";
@@ -10,8 +10,9 @@ export default function CatalogPage() {
   const [quantities, setQuantities] = useState({});
   const [loading, setLoading] = useState(true);
   const [bookingId, setBookingId] = useState(null);
+  const [confirmOrder, setConfirmOrder] = useState(null); // State untuk modal konfirmasi: { event, quantity }
   const [feedback, setFeedback] = useState({ type: "", text: "" });
-
+  const isSubmittingRef = useRef(false);
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -31,32 +32,97 @@ export default function CatalogPage() {
 
   useEffect(() => {
     loadEvents();
+
+    const interval = setInterval(() => {
+      loadEvents();
+    }, 5000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadEvents();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
-  const handleBook = async (eventId) => {
+  // Tahap 1: Validasi login lalu buka pop-up konfirmasi
+  const handleOpenConfirm = (event) => {
     if (!isAuthenticated) {
       navigate("/login");
       return;
     }
 
-    const quantity = Number(quantities[eventId] || 1);
+    const quantity = Number(quantities[event.id] || 1);
+    setConfirmOrder({ event, quantity });
+  };
+
+  // Tahap 2: Eksekusi booking setelah user menekan "Ya, Lanjut Bayar" di modal
+  const handleConfirmBook = async () => {
+    if (!confirmOrder) return;
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
+    const { event, quantity } = confirmOrder;
+    const eventId = event.id;
+
+    setConfirmOrder(null); // Tutup modal konfirmasi
     setBookingId(eventId);
     setFeedback({ type: "", text: "" });
 
     try {
-      await orderService.bookTicket({ eventId, quantity });
-      setFeedback({
-        type: "success",
-        text: `Berhasil mengamankan ${quantity} tiket! Cek menu "Tiket Saya".`,
-      });
-      await loadEvents(); // Refresh kuota sisa terbaru dari PostgreSQL
+      const order = await orderService.bookTicket({ eventId, quantity });
+      await loadEvents();
+
+      const snapToken = order?.snapToken || order?.data?.snapToken;
+
+      if (window.snap && snapToken) {
+        window.snap.pay(snapToken, {
+          onSuccess: () => {
+            setFeedback({
+              type: "success",
+              text: "Pembayaran berhasil! Tiket Anda telah aktif.",
+            });
+          },
+          onPending: () => {
+            setFeedback({
+              type: "success",
+              text: "Menunggu pembayaran. Cek status di menu Tiket Saya.",
+            });
+          },
+          onError: () => {
+            setFeedback({
+              type: "error",
+              text: "Pembayaran gagal diproses oleh Midtrans.",
+            });
+          },
+          onClose: () => {
+            setFeedback({
+              type: "success",
+              text: "Pop-up ditutup. Anda dapat melanjutkan pembayaran di menu Tiket Saya.",
+            });
+          },
+        });
+      } else {
+        setFeedback({
+          type: "success",
+          text: "Tiket berhasil dipesan! Silakan lanjutkan pembayaran di menu Tiket Saya.",
+        });
+      }
     } catch (err) {
       setFeedback({
         type: "error",
-        text: err.response?.data?.message || "Gagal memesan tiket.",
+        text:
+          err.response?.data?.message || err.message || "Gagal memesan tiket.",
       });
+      await loadEvents();
     } finally {
       setBookingId(null);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -184,7 +250,7 @@ export default function CatalogPage() {
                       </select>
 
                       <button
-                        onClick={() => handleBook(ev.id)}
+                        onClick={() => handleOpenConfirm(ev)}
                         disabled={bookingId === ev.id}
                         className="flex-1 bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-white font-semibold py-2 px-4 rounded-lg text-sm transition disabled:opacity-50 cursor-pointer"
                       >
@@ -203,6 +269,91 @@ export default function CatalogPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Pembelian Tiket */}
+      {confirmOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4"
+          onClick={() => setConfirmOrder(null)}
+        >
+          <div
+            className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-900 font-bold">
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+                <h3>Konfirmasi Pesanan</h3>
+              </div>
+              <button
+                onClick={() => setConfirmOrder(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-2.5">
+                <div>
+                  <p className="text-xs text-slate-500">Event</p>
+                  <p className="font-bold text-slate-900">
+                    {confirmOrder.event.title}
+                  </p>
+                </div>
+
+                <div className="flex justify-between text-sm pt-2 border-t border-slate-200/70">
+                  <span className="text-slate-600">Jumlah Tiket</span>
+                  <span className="font-semibold text-slate-900">
+                    {confirmOrder.quantity}x Tiket
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600">Harga Satuan</span>
+                  <span className="font-medium text-slate-900">
+                    Rp {confirmOrder.event.price.toLocaleString("id-ID")}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                  <span className="text-sm font-semibold text-slate-700">
+                    Total Pembayaran
+                  </span>
+                  <span className="text-lg font-extrabold text-amber-600">
+                    Rp{" "}
+                    {(
+                      confirmOrder.event.price * confirmOrder.quantity
+                    ).toLocaleString("id-ID")}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Kuota tiket akan langsung dikunci untuk Anda selama 5 menit
+                setelah melanjutkan ke pembayaran Midtrans.
+              </p>  
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmOrder(null)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200/70 transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBook}
+                className="px-5 py-2 rounded-lg text-sm font-semibold bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-white transition cursor-pointer"
+              >
+                Ya, Lanjut Bayar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "orders" ADD COLUMN     "paymentType" TEXT,
+ADD COLUMN     "snapToken" TEXT,
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER COLUMN "status" SET DEFAULT 'PENDING';

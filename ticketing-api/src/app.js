@@ -4,6 +4,7 @@ import helmet from "helmet";
 import authRoutes from "./routes/auth.routes.js";
 import eventRoutes from "./routes/event.route.js";
 import orderRoutes from "./routes/order.route.js";
+import webhookRoutes from "./routes/webhook.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import ApiError from "./utils/ApiError.js";
 
@@ -27,6 +28,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/webhooks", webhookRoutes);
 
 // Handle 404 Route Tidak Ditemukan
 app.use((req, res, next) => {
